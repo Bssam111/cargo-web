@@ -1,0 +1,162 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helpers ────────────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && getRole() == 'admin';
+    }
+
+    function isEmployee() {
+      return isSignedIn() && (getRole() == 'employee' || getRole() == 'admin');
+    }
+
+    function isOwner() {
+      return isSignedIn() && getRole() == 'owner';
+    }
+
+    function isRenter() {
+      return isSignedIn() && getRole() == 'renter';
+    }
+
+    function isOwnerOfDoc(field) {
+      return isSignedIn() && request.auth.uid == resource.data[field];
+    }
+
+    // ─── Users ──────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      // Admins can read/write all users
+      // Users can read/write their own document
+      allow read: if isAdmin() || request.auth.uid == userId;
+      allow create: if isAdmin() || request.auth.uid == userId;
+      allow update: if isAdmin() || (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']));
+      allow delete: if isAdmin();
+    }
+
+    // ─── Cars ────────────────────────────────────────────────────────────────
+    match /cars/{carId} {
+      allow read: if isSignedIn();
+
+      // Owners can create cars
+      allow create: if isOwner() && request.resource.data.ownerId == request.auth.uid;
+
+      // Owners can update their own cars (but NOT hub status fields)
+      allow update: if (
+        isEmployee()
+      ) || (
+        isOwnerOfDoc('ownerId') &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'status', 'isVerifiedAtHub', 'verifiedByEmployeeId', 'verifiedAt'
+        ])
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ─── Bookings ────────────────────────────────────────────────────────────
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn() && (
+        isEmployee() ||
+        request.auth.uid == resource.data.renterId ||
+        request.auth.uid == resource.data.ownerId
+      );
+
+      // Renters can create bookings
+      allow create: if isRenter() && request.resource.data.renterId == request.auth.uid;
+
+      // Only employees can update pickup/return status
+      allow update: if (
+        isEmployee()
+      ) || (
+        // Owners can only accept/reject (status: confirmed/rejected on pending bookings)
+        isOwnerOfDoc('ownerId') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status in ['confirmed', 'rejected']
+      ) || (
+        // Renters can cancel their own pending/confirmed bookings
+        isOwnerOfDoc('renterId') &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+        resource.data.status in ['pending', 'confirmed'] &&
+        request.resource.data.status == 'cancelled'
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ─── Inspections ─────────────────────────────────────────────────────────
+    match /inspections/{inspectionId} {
+      allow read: if isEmployee() || isAdmin();
+      allow create: if isEmployee();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ─── Damage Reports ───────────────────────────────────────────────────────
+    match /damage_reports/{reportId} {
+      allow read: if isEmployee() || isAdmin();
+      allow create: if isEmployee();
+      allow update: if isEmployee();
+      allow delete: if isAdmin();
+    }
+
+    // ─── Wallets ─────────────────────────────────────────────────────────────
+    match /wallets/{ownerId} {
+      allow read: if isAdmin() || request.auth.uid == ownerId;
+      allow write: if isAdmin();
+    }
+
+    // ─── Transactions ─────────────────────────────────────────────────────────
+    match /transactions/{txId} {
+      allow read: if isAdmin() || request.auth.uid == resource.data.ownerId;
+      allow write: if isAdmin();
+    }
+
+    // ─── Payouts ─────────────────────────────────────────────────────────────
+    match /payouts/{payoutId} {
+      allow read: if isAdmin() || request.auth.uid == resource.data.ownerId;
+      // Owners can request payouts (create)
+      allow create: if isOwner() && request.resource.data.ownerId == request.auth.uid && request.resource.data.status == 'pending';
+      // Only admins can approve/reject/mark paid
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // ─── Reviews ─────────────────────────────────────────────────────────────
+    match /Reviews/{reviewId} {
+      allow read: if isSignedIn();
+      allow create: if isRenter();
+      allow update, delete: if isAdmin();
+    }
+
+    // ─── Admin Logs ───────────────────────────────────────────────────────────
+    match /admin_logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // ─── OTP Collections (mobile app only) ────────────────────────────────────
+    match /signupOtps/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /otpVerifications/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // ─── Notifications ────────────────────────────────────────────────────────
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && (isAdmin() || request.auth.uid == resource.data.userId);
+      allow create: if isEmployee() || isAdmin();
+      allow update: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow delete: if isAdmin();
+    }
+  }
+}

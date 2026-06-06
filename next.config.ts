@@ -23,6 +23,10 @@ const nextConfig: NextConfig = {
         protocol: 'https',
         hostname: 'media.production.jlrms.com',
       },
+      {
+        protocol: 'https',
+        hostname: 'www.autopediame.com',
+      },
     ],
   },
 };

@@ -7,8 +7,14 @@ import { Toaster } from 'react-hot-toast';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'CarGo Portal',
-  description: 'CarGo Admin & Employee Operations Portal',
+  title: 'CarGo — Saudi\'s Peer-to-Peer Car Rental Platform',
+  description: 'CarGo connects vehicle owners and renters through a managed hub model in Riyadh. Seamless bookings, verified vehicles, and secure payments.',
+  keywords: 'car rental, Saudi Arabia, Riyadh, peer-to-peer, CarGo, Flutter app',
+  openGraph: {
+    title: 'CarGo — Rent Smarter',
+    description: 'Saudi Arabia\'s first peer-to-peer car rental platform with a managed hub model.',
+    type: 'website',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

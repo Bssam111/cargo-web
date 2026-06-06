@@ -1,0 +1,138 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// FILE: cargo-portal/services/bookings.ts
+// ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { creditOwnerEarning } from './wallets';
+
+export async function confirmPickup(
+  bookingId: string,
+  carId: string,
+  employeeId: string,
+  notes?: string
+): Promise<void> {
+  await updateDoc(doc(db, 'bookings', bookingId), {
+    status:            'in_trip',
+    pickupStatus:      'confirmed',
+    pickupConfirmedBy: employeeId,
+    pickupConfirmedAt: serverTimestamp(),
+    notes:             notes ?? '',
+    updatedAt:         serverTimestamp(),
+  });
+  await updateDoc(doc(db, 'cars', carId), {
+    status:    'in_trip',
+    hubStatus: 'in_trip',
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function confirmReturn(
+  bookingId: string,
+  carId: string,
+  employeeId: string,
+  hasDamage: boolean,
+  returnNotes?: string
+): Promise<void> {
+  const bookingSnap = await getDoc(doc(db, 'bookings', bookingId));
+  let ownerId: string | undefined;
+  let ownerEarning = 0;
+  if (bookingSnap.exists()) {
+    const d  = bookingSnap.data();
+    ownerId  = d.ownerId as string;
+    ownerEarning = Number(
+      d.ownerEarning ?? (Number(d.totalAmount ?? d.totalPrice ?? 0) * 0.9)
+    );
+  }
+
+  const carStatus = hasDamage ? 'maintenance' : 'ready_for_rental';
+
+  await updateDoc(doc(db, 'bookings', bookingId), {
+    status:            'completed',
+    returnStatus:      'confirmed',
+    returnConfirmedBy: employeeId,
+    returnConfirmedAt: serverTimestamp(),
+    completedAt:       serverTimestamp(),
+    returnNotes:       returnNotes ?? '',
+    updatedAt:         serverTimestamp(),
+  });
+
+  await updateDoc(doc(db, 'cars', carId), {
+    status:    carStatus,
+    hubStatus: carStatus,
+    available: carStatus === 'ready_for_rental',
+    updatedAt: serverTimestamp(),
+  });
+
+  if (ownerId && ownerEarning > 0) {
+    await creditOwnerEarning(ownerId, bookingId, ownerEarning);
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FILE: cargo-portal/services/inspections.ts
+// ─────────────────────────────────────────────────────────────────────────────
+
+import {
+  collection,
+  addDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
+import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db, storage } from '@/lib/firebase';
+
+export async function uploadInspectionPhotos(
+  carId: string,
+  photos: File[]
+): Promise<string[]> {
+  const urls: string[] = [];
+  for (const photo of photos) {
+    const path    = `inspections/${carId}/${Date.now()}_${photo.name}`;
+    const fileRef = storageRef(storage, path);
+    await uploadBytes(fileRef, photo);
+    urls.push(await getDownloadURL(fileRef));
+  }
+  return urls;
+}
+
+export async function createInspection(data: {
+  carId: string;
+  bookingId?: string;
+  type: string;
+  employeeId: string;
+  odometer: number;
+  fuelLevel: string;
+  exteriorCondition: string;
+  interiorCondition: string;
+  tireCondition: string;
+  cleanliness: string;
+  damageNotes: string;
+  photos: File[];
+}): Promise<string> {
+  const photoUrls = data.photos.length > 0
+    ? await uploadInspectionPhotos(data.carId, data.photos)
+    : [];
+
+  const docRef = await addDoc(collection(db, 'inspections'), {
+    carId:             data.carId,
+    bookingId:         data.bookingId ?? null,
+    type:              data.type,
+    employeeId:        data.employeeId,
+    odometer:          data.odometer,
+    fuelLevel:         data.fuelLevel,
+    exteriorCondition: data.exteriorCondition,
+    interiorCondition: data.interiorCondition,
+    tireCondition:     data.tireCondition,
+    cleanliness:       data.cleanliness,
+    damageNotes:       data.damageNotes,
+    photos:            photoUrls,
+    createdAt:         serverTimestamp(),
+  });
+  return docRef.id;
+}

@@ -9,9 +9,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { getDocs, collection, query, where, orderBy } from 'firebase/firestore';
+import { getDocs, collection, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, safeNumber } from '@/lib/utils';
+import { getPlatformRevenue } from '@/services/payouts';
 import { TrendingUp, Car, Users, CalendarCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -39,10 +40,10 @@ export default function ReportsPage() {
 
   async function loadReports() {
     try {
-      const [bookingsSnap, carsSnap, transSnap] = await Promise.all([
+      const [bookingsSnap, carsSnap, rev] = await Promise.all([
         getDocs(collection(db, 'bookings')),
         getDocs(collection(db, 'cars')),
-        getDocs(query(collection(db, 'transactions'), where('type', '==', 'platform_fee'))),
+        getPlatformRevenue(),
       ]);
 
       // Monthly breakdown (6 months)
@@ -54,23 +55,30 @@ export default function ReportsPage() {
         monthMap[key] = { bookings: 0, revenue: 0 };
       }
 
-      let totalRevenue = 0;
       let totalBookingValue = 0;
+      let paidBookingCount = 0;
       const bookingCounts: Record<string, number> = {};
       const carTrips: Record<string, { car: string; trips: number }> = {};
       const ownerEarnings: Record<string, { name: string; earnings: number }> = {};
+
+      const PAID_STATUSES = new Set(['confirmed', 'in_trip', 'completed']);
 
       bookingsSnap.docs.forEach(d => {
         const b = d.data();
         const status = b.status as string;
         bookingCounts[status] = (bookingCounts[status] ?? 0) + 1;
-        totalBookingValue += b.totalAmount ?? 0;
+        const bookingTotal = safeNumber(b.totalPrice ?? b.totalAmount);
+        if (PAID_STATUSES.has(status)) {
+          totalBookingValue += bookingTotal;
+          paidBookingCount += 1;
+        }
 
         const createdAt = b.createdAt?.toDate?.() ?? new Date(0);
         const key = createdAt.toLocaleString('default', { month: 'short', year: '2-digit' });
         if (key in monthMap) {
           monthMap[key].bookings += 1;
-          monthMap[key].revenue += b.platformFee ?? 0;
+          const fee = safeNumber(b.platformFee) || Math.round(bookingTotal * 0.1);
+          monthMap[key].revenue += fee;
         }
 
         if (b.carId) {
@@ -84,8 +92,6 @@ export default function ReportsPage() {
         }
       });
 
-      transSnap.docs.forEach(d => { totalRevenue += d.data().amount ?? 0; });
-
       const totalBookings = bookingsSnap.size;
       const completed = bookingCounts['completed'] ?? 0;
       const activeCars = carsSnap.docs.filter(d => ['ready_for_rental', 'in_trip', 'at_hub'].includes(d.data().status)).length;
@@ -96,8 +102,8 @@ export default function ReportsPage() {
         topOwners: Object.values(ownerEarnings).sort((a, b) => b.earnings - a.earnings).slice(0, 8),
         bookingStatusDist: Object.entries(bookingCounts).map(([name, value]) => ({ name, value })),
         summary: {
-          totalRevenue,
-          avgBookingValue: totalBookings > 0 ? Math.round(totalBookingValue / totalBookings) : 0,
+          totalRevenue: rev.total,
+          avgBookingValue: paidBookingCount > 0 ? Math.round(totalBookingValue / paidBookingCount) : 0,
           completionRate: totalBookings > 0 ? Math.round((completed / totalBookings) * 100) : 0,
           totalCars: carsSnap.size,
           activeCars,

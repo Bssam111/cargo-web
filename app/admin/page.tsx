@@ -14,8 +14,10 @@ import {
   DollarSign, Car, Users, CalendarCheck, Warehouse, Wallet, TrendingUp, CheckCircle,
 } from 'lucide-react';
 import { formatCurrency, bookingStatusLabel } from '@/lib/utils';
+import { getUserRole } from '@/lib/roleUtils';
 import { getRecentBookings } from '@/services/bookings';
 import { isCarAtHub } from '@/services/cars';
+import { getPlatformRevenue } from '@/services/payouts';
 import { Booking } from '@/types';
 
 const PIE_COLORS = ['#004B09', '#3B82F6', '#8B5CF6', '#10B981', '#EF4444', '#F59E0B'];
@@ -47,11 +49,11 @@ export default function AdminDashboard() {
 
   async function loadDashboard() {
     try {
-      const [bookingsSnap, carsSnap, usersSnap, transSnap, payoutsSnap, recent] = await Promise.all([
+      const [bookingsSnap, carsSnap, usersSnap, rev, payoutsSnap, recent] = await Promise.all([
         getDocs(collection(db, 'bookings')),
         getDocs(collection(db, 'cars')),
         getDocs(collection(db, 'users')),
-        getDocs(query(collection(db, 'transactions'), where('type', '==', 'platform_fee'))),
+        getPlatformRevenue(),
         getDocs(query(collection(db, 'payouts'), where('status', '==', 'pending'))),
         getRecentBookings(8),
       ]);
@@ -72,11 +74,9 @@ export default function AdminDashboard() {
 
       const roleCounts: Record<string, number> = {};
       usersSnap.docs.forEach(d => {
-        const r = d.data().role as string;
-        roleCounts[r] = (roleCounts[r] ?? 0) + 1;
+        const r = getUserRole(d.data() as Record<string, unknown>);
+        if (r) roleCounts[r] = (roleCounts[r] ?? 0) + 1;
       });
-
-      const totalRevenue = transSnap.docs.reduce((sum, d) => sum + (d.data().amount ?? 0), 0);
 
       setStats({
         totalBookings: bookingsSnap.size,
@@ -88,7 +88,7 @@ export default function AdminDashboard() {
         carsInTrip: carCounts['in_trip'] ?? 0,
         totalOwners: roleCounts['owner'] ?? 0,
         totalRenters: roleCounts['renter'] ?? 0,
-        totalRevenue,
+        totalRevenue: rev.total,
         pendingPayouts: payoutsSnap.size,
       });
 

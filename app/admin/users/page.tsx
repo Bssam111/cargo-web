@@ -111,8 +111,8 @@ export default function UsersPage() {
                   <TableCell className="text-gray-500">{u.email}</TableCell>
                   <TableCell className="text-gray-500">{u.phone || '—'}</TableCell>
                   <TableCell>
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${roleColors[u.role] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {u.role}
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${u.role ? roleColors[u.role] ?? 'bg-gray-100 text-gray-600' : 'bg-gray-100 text-gray-600'}`}>
+                      {u.role ?? '—'}
                     </span>
                   </TableCell>
                   <TableCell className="text-gray-500">{formatDate(u.createdAt)}</TableCell>

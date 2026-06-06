@@ -12,6 +12,7 @@ import {
 } from 'firebase/auth';
 import { auth, db } from '@/lib/firebase';
 import { PortalUser, UserRole } from '@/types';
+import { getUserRole } from '@/lib/roleUtils';
 
 function tsMillis(v: unknown): number {
   if (!v) return 0;
@@ -21,10 +22,15 @@ function tsMillis(v: unknown): number {
   return 0;
 }
 
-// Fetch all users then filter/sort client-side to avoid composite index requirements
+// Fetch all users then filter/sort client-side to avoid composite index requirements.
+// Normalizes `role` from either the legacy string field or the newer `roles` array.
 export async function getUsers(role?: UserRole): Promise<PortalUser[]> {
   const snap = await getDocs(collection(db, 'users'));
-  let users = snap.docs.map(d => ({ uid: d.id, ...d.data() } as PortalUser));
+  let users = snap.docs.map(d => {
+    const data = d.data();
+    const resolvedRole = getUserRole(data as Record<string, unknown>);
+    return { uid: d.id, ...data, role: resolvedRole } as PortalUser;
+  });
   if (role) users = users.filter(u => u.role === role);
   users.sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
   return users;
@@ -44,8 +50,8 @@ export async function getUserCountByRole(): Promise<Record<string, number>> {
   const snap = await getDocs(collection(db, 'users'));
   const counts: Record<string, number> = {};
   snap.docs.forEach(d => {
-    const r = d.data().role as string;
-    counts[r] = (counts[r] ?? 0) + 1;
+    const r = getUserRole(d.data() as Record<string, unknown>);
+    if (r) counts[r] = (counts[r] ?? 0) + 1;
   });
   return counts;
 }

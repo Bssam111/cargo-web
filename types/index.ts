@@ -34,7 +34,8 @@ export interface PortalUser {
   email: string;
   fullName: string;
   phone: string;
-  role: UserRole;
+  role?: UserRole;    // legacy single-role field
+  roles?: string[];   // newer array-format role field
   nationalId?: string;
   licenseUrl?: string;
   isActive: boolean;

@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, useInView } from 'framer-motion';
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Download, Smartphone, CheckCircle, Package, HardDrive, Shield } from 'lucide-react';
 
 const steps = [
@@ -12,15 +12,23 @@ const steps = [
   { step: '5', text: 'Launch CarGo and create your account' },
 ];
 
-const specs = [
-  { icon: Package, label: 'File Size', value: '~62 MB' },
-  { icon: HardDrive, label: 'Platform', value: 'Android' },
-  { icon: Shield, label: 'Build', value: 'Production' },
-];
-
 export default function DownloadSection() {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: '-80px' });
+  const [apkSize, setApkSize] = useState('...');
+
+  useEffect(() => {
+    fetch('/api/apk-info')
+      .then((r) => r.json())
+      .then((data) => setApkSize(data.size ?? 'N/A'))
+      .catch(() => setApkSize('N/A'));
+  }, []);
+
+  const specs = [
+    { icon: Package, label: 'File Size', value: apkSize },
+    { icon: HardDrive, label: 'Platform', value: 'Android' },
+    { icon: Shield, label: 'Build', value: 'Production' },
+  ];
 
   return (
     <section id="download" ref={ref} className="py-28 bg-gray-950">
